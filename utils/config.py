@@ -10,72 +10,206 @@ from typing import Optional
 # ─── Scan Profiles ────────────────────────────────────────────────────────────
 
 
-# ─── Scan Modes (preset kombinasi flag) ─────────────────────────────────────
-# Dipakai via --mode <nama> di CLI
-# Setiap mode adalah shorthand untuk sekelompok flag yang sudah dikurasi.
-# Individual flags masih bisa di-override setelah mode diterapkan.
+# ─── Scan Modes ─────────────────────────────────────────────────────────────
+#
+# Preset mode yang menggabungkan flag-flag terkait jadi satu perintah simpel.
+#
+# ALUR KERJA YANG DIREKOMENDASIKAN:
+#
+#   1. Mulai dengan --mode quick   → "Ada XSS ga di sini?"
+#   2. Kalau ada temuan → --mode hunt   → "Gali lebih dalam"
+#   3. Kalau terus diblokir WAF → --mode bypass  → "Lolosin proteksinya"
+#   4. Mau submit laporan → --mode bounty  → "Siapkan bukti yang kuat"
+#
+#   Kondisi khusus:
+#   - Target punya admin panel → --mode blind  (butuh server callback)
+#   - Target React/Vue/Angular → --mode spa    (butuh Playwright)
+#   - Target sensitif/IDS ada → --mode stealth
+#
+# CATATAN: Individual flag tetap bisa di-override setelah mode.
+# Contoh: python xscanner.py -u URL --mode bounty --scan-timeout 3600
 
 SCAN_MODES: dict = {
-    "recon": {
-        "desc":    "Scan cepat untuk recon awal (< 5 menit)",
-        "profile": "fast", "depth": 1, "threads": 20,
-        "crawl": True, "waf_bypass": True, "engine_version": "v2",
+
+    # ─── QUICK ────────────────────────────────────────────────────────────────
+    # Tujuan : Cek cepat apakah ada XSS di target
+    # Waktu  : 5-10 menit
+    # Pakai  : Saat pertama kali lihat target, atau untuk triage cepat
+    # Tidak  : Playwright, server eksternal
+    "quick": {
+        "desc":      "Cek cepat ada XSS atau tidak (5-10 menit)",
+        "detail":    "Crawl semua halaman, test semua parameter, WAF bypass dasar. "
+                     "Tidak butuh setup tambahan. Cocok untuk triage awal.",
+        "profile":   "fast",
+        "depth":     2,
+        "threads":   15,
+        "crawl":     True,
+        "waf_bypass":True,
+        "test_headers": True,
+        "engine_version": "v2",
     },
-    "standard": {
-        "desc":    "Scan standar sehari-hari (10-30 menit)",
-        "profile": "normal", "depth": 2, "threads": 10,
-        "crawl": True, "waf_bypass": True,
-        "test_headers": True, "test_hpp": True, "engine_version": "v2",
+
+    # ─── HUNT ─────────────────────────────────────────────────────────────────
+    # Tujuan : Full coverage — cari semua jenis XSS yang mungkin ada
+    # Waktu  : 1-3 jam
+    # Pakai  : Ketika sudah komit ngulik satu target
+    # Tidak  : Browser validation (untuk kecepatan), server eksternal
+    "hunt": {
+        "desc":      "Full coverage — semua engine aktif (1-3 jam)",
+        "detail":    "14 payload engine, 11 jenis XSS, 12 konteks injection, "
+                     "WAF bypass penuh. Tanpa browser validation supaya tetap cepat. "
+                     "Gunakan setelah mode quick menemukan sesuatu yang menarik.",
+        "profile":   "deep",
+        "depth":     3,
+        "threads":   10,
+        "crawl":     True,
+        "waf_bypass":True,
+        "engine_version":   "v3",
+        "test_headers":     True,
+        "test_hpp":         True,
+        "test_hpp_2025":    True,
+        "test_json":        True,
+        "test_csp_bypass":  True,
+        "test_prototype":   True,
+        "test_template":    True,
+        "test_new_events":  True,
+        "test_parser_diff": True,
+        "unicode_bypass":   True,
+        "browser_quirks":   True,
+        "dom_clobbering":   True,
+        "second_order":     True,
+        "js_crawl":         True,
+        "waf_chain_depth":  3,
     },
-    "deep": {
-        "desc":    "Full assessment — semua engine (1-3 jam)",
-        "profile": "deep", "depth": 3, "threads": 8,
-        "crawl": True, "waf_bypass": True, "engine_version": "v3",
-        "test_headers": True, "test_hpp": True, "test_hpp_2025": True,
-        "test_json": True, "test_csp_bypass": True, "test_prototype": True,
-        "test_template": True, "test_new_events": True, "test_parser_diff": True,
-        "unicode_bypass": True, "browser_quirks": True, "dom_clobbering": True,
-        "second_order": True, "js_crawl": True, "waf_chain_depth": 4,
+
+    # ─── BYPASS ───────────────────────────────────────────────────────────────
+    # Tujuan : Loloskan payload melewati WAF/filter yang aktif
+    # Waktu  : 30-60 menit
+    # Pakai  : Sudah tahu ada XSS tapi terus diblokir WAF
+    # Tidak  : Crawl panjang, engine yang tidak relevan
+    "bypass": {
+        "desc":      "WAF bypass fokus — sudah ada XSS, perlu lolos filter (30-60 menit)",
+        "detail":    "31 teknik evasion × 36.456 chain/payload, AFB probe karakter, "
+                     "parser differential 2025, unicode homoglyph, browser quirks. "
+                     "Gunakan setelah tahu parameter vulnerable tapi payload diblokir.",
+        "profile":   "normal",
+        "depth":     1,
+        "threads":   8,
+        "crawl":     False,
+        "waf_bypass":     True,
+        "engine_version": "v3",
+        "test_new_events":  True,
+        "test_parser_diff": True,
+        "unicode_bypass":   True,
+        "browser_quirks":   True,
+        "run_afb":          True,
+        "waf_chain_depth":  4,
     },
-    "stealth": {
-        "desc":    "Mode senyap — lambat, minimalkan noise di log",
-        "profile": "stealth", "depth": 2, "threads": 2,
-        "rate_limit": 2.0, "crawl": True, "waf_bypass": True, "engine_version": "v2",
-    },
+
+    # ─── BOUNTY ───────────────────────────────────────────────────────────────
+    # Tujuan : Siapkan bukti XSS yang kuat dan laporan siap submit
+    # Waktu  : 2-4 jam
+    # Pakai  : Final step sebelum submit ke bug bounty platform
+    # Butuh  : Playwright (--knoxss-validate + --verify-headless)
     "bounty": {
-        "desc":    "Bug bounty — full scan + report siap submit (2-4 jam)",
-        "profile": "deep", "depth": 3, "threads": 10,
-        "crawl": True, "waf_bypass": True, "engine_version": "v3",
-        "test_headers": True, "test_hpp": True, "test_hpp_2025": True,
-        "test_json": True, "test_csp_bypass": True, "test_prototype": True,
-        "test_template": True, "test_new_events": True, "test_parser_diff": True,
-        "unicode_bypass": True, "browser_quirks": True, "second_order": True,
-        "js_crawl": True, "dom_xss_scan": True, "run_afb": True,
-        "knoxss_validate": True, "generate_poc": True, "verify_headless": True,
-        "checkpoint": True, "waf_chain_depth": 4,
-        "report_html": "bounty_report.html",
-        "report_md":   "bounty_submission.md",
-        "report_sarif":"bounty_report.sarif",
+        "desc":      "Bug bounty ready — bukti kuat + laporan lengkap (2-4 jam)",
+        "detail":    "Semua engine + AFB + validasi browser nyata + generate PoC HTML "
+                     "per finding + semua format laporan. Checkpoint aktif supaya "
+                     "bisa dilanjut kalau terhenti. Butuh Playwright.",
+        "profile":   "deep",
+        "depth":     3,
+        "threads":   10,
+        "crawl":     True,
+        "waf_bypass":True,
+        "engine_version":   "v3",
+        "test_headers":     True,
+        "test_hpp":         True,
+        "test_hpp_2025":    True,
+        "test_json":        True,
+        "test_csp_bypass":  True,
+        "test_prototype":   True,
+        "test_template":    True,
+        "test_new_events":  True,
+        "test_parser_diff": True,
+        "unicode_bypass":   True,
+        "browser_quirks":   True,
+        "dom_clobbering":   True,
+        "second_order":     True,
+        "js_crawl":         True,
+        "run_afb":          True,
+        "knoxss_validate":  True,
+        "generate_poc":     True,
+        "verify_headless":  True,
+        "checkpoint":       True,
+        "waf_chain_depth":  4,
+        "report_html":      "bounty_report.html",
+        "report_md":        "bounty_submission.md",
+        "report_sarif":     "bounty_report.sarif",
     },
-    "waf": {
-        "desc":    "WAF bypass focused — 31 teknik evasion + AFB",
-        "profile": "normal", "waf_bypass": True, "engine_version": "v3",
-        "unicode_bypass": True, "browser_quirks": True,
-        "test_parser_diff": True, "test_new_events": True,
-        "run_afb": True, "waf_chain_depth": 4,
+
+    # ─── STEALTH ──────────────────────────────────────────────────────────────
+    # Tujuan : Minimalkan jejak di log server dan hindari trigger IDS/WAF
+    # Waktu  : Bervariasi (sangat lambat by design)
+    # Pakai  : Target sensitif, atau program bounty yang strict soal rate limit
+    "stealth": {
+        "desc":      "Mode senyap — minimalkan noise di log dan IDS (lambat by design)",
+        "detail":    "Rate limit 2 detik/request, hanya 2 thread, profile stealth. "
+                     "Tidak ada engine berat yang kirim banyak request sekaligus. "
+                     "Pakai saat program bounty punya aturan rate limit ketat.",
+        "profile":   "stealth",
+        "depth":     2,
+        "threads":   2,
+        "rate_limit":2.0,
+        "crawl":     True,
+        "waf_bypass":True,
+        "engine_version": "v2",
     },
+
+    # ─── BLIND ────────────────────────────────────────────────────────────────
+    # Tujuan : Cari XSS yang muncul di tempat yang tidak kamu lihat (admin panel)
+    # Waktu  : Bervariasi (payload ditanam, tunggu admin buka)
+    # Pakai  : Aplikasi yang punya admin/support dashboard tersembunyi
+    # BUTUH  : Server yang accessible dari internet untuk terima callback
     "blind": {
-        "desc":    "Blind XSS focused — rich probe + dashboard server",
-        "profile": "normal", "engine_version": "v3",
-        "start_rich_blind_server": True, "blind_screenshot": True,
-        "second_order": True, "test_headers": True,
+        "desc":      "Blind XSS — cari yang muncul di admin panel (butuh callback server)",
+        "detail":    "Rich blind probe dengan screenshot + cookies + localStorage + "
+                     "secret scanning. Jalankan rich blind server lokal + inject ke "
+                     "semua parameter. BUTUH: server/VPS yang accessible dari internet, "
+                     "atau pakai ngrok/cloudflared untuk expose localhost.",
+        "profile":   "normal",
+        "depth":     2,
+        "threads":   8,
+        "crawl":     True,
+        "engine_version":          "v3",
+        "start_rich_blind_server": True,
+        "blind_screenshot":        True,
+        "second_order":            True,
+        "test_headers":            True,
     },
-    "dom": {
-        "desc":    "DOM XSS + SPA focused — butuh Playwright",
-        "profile": "normal", "engine_version": "v3",
-        "dom_xss_scan": True, "spa_crawl": True, "js_crawl": True,
-        "verify_headless": True, "dom_clobbering": True,
-        "test_prototype": True, "test_template": True,
+
+    # ─── SPA ──────────────────────────────────────────────────────────────────
+    # Tujuan : Scan aplikasi modern berbasis JavaScript (React/Vue/Angular/Next.js)
+    # Waktu  : 1-2 jam
+    # Pakai  : Target yang kontennya dimuat dinamis, bukan HTML statis
+    # BUTUH  : playwright install chromium
+    "spa": {
+        "desc":      "SPA / JavaScript app (React/Vue/Angular) — butuh Playwright",
+        "detail":    "Playwright-based crawler yang bisa jalan JavaScript, klik button, "
+                     "tunggu konten dimuat. DOM XSS scanner dengan JS instrumentation. "
+                     "Deteksi parameter tersembunyi di dalam bundle JS. "
+                     "BUTUH: playwright install chromium",
+        "profile":   "normal",
+        "depth":     3,
+        "threads":   5,
+        "crawl":     True,
+        "engine_version": "v3",
+        "dom_xss_scan":   True,
+        "spa_crawl":      True,
+        "js_crawl":       True,
+        "verify_headless":True,
+        "dom_clobbering": True,
+        "test_prototype": True,
+        "test_template":  True,
     },
 }
 

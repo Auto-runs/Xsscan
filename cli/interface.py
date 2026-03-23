@@ -24,7 +24,7 @@ console = Console()
 @click.version_option("3.0.0", "-V", "--version", prog_name="xscanner")
 # ── Preset Mode ──────────────────────────────────────────────────────────────
 @click.option("--mode", "-m",
-              type=click.Choice(["recon","standard","deep","stealth","bounty","waf","blind","dom"]),
+              type=click.Choice(["quick","hunt","bypass","bounty","stealth","blind","spa"]),
               default=None,
               help="Preset mode — gabungan flag yang sudah dikurasi. "
                    "Jalankan --list-modes untuk lihat detail setiap mode.")
@@ -128,20 +128,27 @@ def main(mode, list_modes,
 ):
     """
     \b
-    XScanner — Next-Generation XSS Detection Framework
-    ────────────────────────────────────────────────────
-    ⚠ For authorized penetration testing ONLY.
-    Usage on systems without explicit permission is illegal.
+    XScanner — Next-Generation XSS Security Research Framework
+    ──────────────────────────────────────────────────────────
+    ⚠  Untuk authorized penetration testing dan security research ONLY.
+    ⚠  Penggunaan tanpa izin tertulis adalah tindakan ilegal.
 
     \b
-    Examples:
-      python xscanner.py -u "https://example.com/search?q=test"
-      python xscanner.py -u "https://site.com" --deep --threads 5
-      python xscanner.py -l targets.txt --profile stealth --proxy http://127.0.0.1:8080
-      python xscanner.py -u "https://site.com" --blind-callback "http://your.server.com/cb"
-      python xscanner.py -u "https://site.com" --login-url "https://site.com/login" --username admin --password s3cr3t
-      python xscanner.py -u "https://site.com" --test-headers --test-hpp --test-json --second-order
-      python xscanner.py -u "https://site.com" --verify-headless --report-html report.html --report-sarif report.sarif
+    CARA CEPAT — pakai --mode:
+      python xscanner.py -u "https://target.com" --mode quick    # triage 5 menit
+      python xscanner.py -u "https://target.com" --mode hunt     # full scan 1-3 jam
+      python xscanner.py -u "https://target.com" --mode bypass   # lolos WAF
+      python xscanner.py -u "https://target.com" --mode bounty   # laporan lengkap
+      python xscanner.py -u "https://target.com" --mode spa      # React/Vue/Angular
+      python xscanner.py -u "https://target.com" --mode blind --blind-callback https://cb.io
+      python xscanner.py --list-modes                            # lihat semua mode
+
+    \b
+    ALUR KERJA BUG BOUNTY:
+      1. quick   →  lihat ada yang menarik tidak
+      2. hunt    →  gali dalam di target yang menarik
+      3. bypass  →  kalau ada XSS tapi diblokir WAF
+      4. bounty  →  generate bukti + laporan siap submit
     """
     banner()
 
@@ -151,20 +158,73 @@ def main(mode, list_modes,
     if list_modes:
         from utils.config import SCAN_MODES
         import click as _click
-        _click.echo("\n  XScanner — Preset Modes\n")
-        _click.echo("  " + "─"*55)
+
+        _click.echo("""
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║            XScanner — Scan Modes Reference                      ║
+  ╚══════════════════════════════════════════════════════════════════╝
+
+  ALUR KERJA YANG DIREKOMENDASIKAN:
+  ─────────────────────────────────
+  1. quick   → "Ada XSS ga di sini?" (triage awal)
+  2. hunt    → "Gali lebih dalam, cari semua" (main scan)
+  3. bypass  → "Ada XSS tapi keblokir WAF" (fokus bypass)
+  4. bounty  → "Siapkan bukti untuk laporan" (final step)
+
+  Mode kondisi khusus (butuh setup tambahan):
+  ─────────────────────────────────────────
+  blind  → Admin panel / stored XSS (butuh callback server)
+  spa    → React / Vue / Angular app (butuh Playwright)
+  stealth→ Target sensitif dengan IDS (sangat lambat)
+""")
         for _name, _cfg in SCAN_MODES.items():
-            _click.echo(f"\n  --mode {_name}")
-            _click.echo(f"    {_cfg['desc']}")
-            _flags = {k:v for k,v in _cfg.items() if k not in ('desc',) and v is not False and v is not None}
-            for _k, _v in list(_flags.items())[:8]:
-                _click.echo(f"    • {_k} = {_v}")
-            if len(_flags) > 8:
-                _click.echo(f"    • ... +{len(_flags)-8} flag lainnya")
-        _click.echo("\n  Contoh penggunaan:")
-        _click.echo("    python xscanner.py -u https://target.com --mode bounty")
-        _click.echo("    python xscanner.py -u https://target.com --mode waf --run-afb")
-        _click.echo("    python xscanner.py -u https://target.com --mode blind --blind-callback https://cb.io\n")
+            _flags = {k:v for k,v in _cfg.items()
+                      if k not in ("desc","detail") and v not in (False, None)}
+            _bool_on  = [k for k,v in _flags.items() if v is True]
+            _non_bool = {k:v for k,v in _flags.items() if v is not True}
+
+            _click.echo(f"  ┌─ --mode {_name}")
+            _click.echo(f"  │  {_cfg['desc']}")
+            _click.echo(f"  │")
+            _click.echo(f"  │  {_cfg.get('detail','')}")
+            _click.echo(f"  │")
+            if _non_bool:
+                for _k,_v in _non_bool.items():
+                    _click.echo(f"  │  {_k} = {_v}")
+            if _bool_on:
+                _click.echo(f"  │  Aktif: {', '.join(_bool_on[:6])}")
+                if len(_bool_on) > 6:
+                    _click.echo(f"  │         {', '.join(_bool_on[6:12])}")
+            _click.echo(f"  └{'─'*60}")
+            _click.echo("")
+
+        _click.echo("""  CONTOH PENGGUNAAN:
+  ─────────────────────────────────────────────────────────────
+  # Triage cepat
+  python xscanner.py -u "https://target.com" --mode quick
+
+  # Full scan dengan laporan
+  python xscanner.py -u "https://target.com" --mode hunt -o hasil.json
+
+  # Bypass WAF yang ketat
+  python xscanner.py -u "https://target.com/search?q=test" --mode bypass
+
+  # Bug bounty lengkap
+  python xscanner.py -u "https://target.com" --mode bounty \
+    --blind-callback "https://your-server.com" \
+    --scan-timeout 7200
+
+  # Aplikasi SPA
+  python xscanner.py -u "https://target.com" --mode spa
+
+  # Blind XSS (butuh ngrok/VPS untuk server lokal)
+  python xscanner.py -u "https://target.com" --mode blind \
+    --blind-callback "https://your-vps.com"
+
+  # Override flag setelah mode
+  python xscanner.py -u "https://target.com" --mode hunt \
+    --threads 20 --scan-timeout 3600 --payload-file my_payloads.txt
+""")
         return
 
     # ── Apply preset mode (sebelum individual flags di-process) ──────────────
