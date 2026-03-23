@@ -34,7 +34,6 @@ waf_bypass/evasion_v2.py
 import itertools
 import re
 import urllib.parse
-import random
 from typing import List, Tuple, Optional
 from utils.logger import debug
 

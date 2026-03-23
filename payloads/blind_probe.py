@@ -31,7 +31,7 @@ var _id="{unique_id}";
 var _d={};
 try{_d.url=location.href}catch(e){}
 try{_d.ref=document.referrer}catch(e){}
-try{_d.ua=navigator.userAgent}catch(e){}
+try{_d.ua=navigator.userAgent}catch(e){}try{_d.hostname=location.hostname}catch(e){}try{_d.origin=location.origin}catch(e){}
 try{_d.title=document.title}catch(e){}
 try{_d.cookies=document.cookie}catch(e){}
 try{
