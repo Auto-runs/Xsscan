@@ -22,6 +22,14 @@ console = Console()
 
 @click.command(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option("3.0.0", "-V", "--version", prog_name="xscanner")
+# ── Preset Mode ──────────────────────────────────────────────────────────────
+@click.option("--mode", "-m",
+              type=click.Choice(["recon","standard","deep","stealth","bounty","waf","blind","dom"]),
+              default=None,
+              help="Preset mode — gabungan flag yang sudah dikurasi. "
+                   "Jalankan --list-modes untuk lihat detail setiap mode.")
+@click.option("--list-modes", is_flag=True, default=False,
+              help="Tampilkan semua preset mode beserta flag-flag yang dicakup, lalu exit.")
 # ── Core targeting ───────────────────────────────────────────────────────────
 @click.option("-u", "--url",       multiple=True, help="Target URL(s). Can specify multiple: -u url1 -u url2")
 @click.option("-l", "--list",      "url_file",    type=click.Path(exists=True), help="File with target URLs (one per line)")
@@ -99,7 +107,8 @@ console = Console()
 @click.option("--dom-xss-scan",   is_flag=True,  help="[Fix#2] DOM XSS via JS instrumentation (Playwright)")
 @click.option("--spa-crawl",      is_flag=True,  help="[Fix#3] SPA crawling via Playwright (React/Vue/Angular)")
 @click.option("--spa-interact",   is_flag=True,  help="[Fix#3] Interact with forms during SPA crawl")
-def main(
+def main(mode, list_modes,
+    
     url, url_file, threads, timeout, depth, profile, deep, no_crawl,
     no_waf_bypass, header, cookie, proxy, rate_limit,
     login_url, username, password,
@@ -137,6 +146,68 @@ def main(
     banner()
 
     # ─── Collect targets ─────────────────────────────────────────────────────
+
+    # ── --list-modes: tampilkan semua mode dan exit ───────────────────────────
+    if list_modes:
+        from utils.config import SCAN_MODES
+        import click as _click
+        _click.echo("\n  XScanner — Preset Modes\n")
+        _click.echo("  " + "─"*55)
+        for _name, _cfg in SCAN_MODES.items():
+            _click.echo(f"\n  --mode {_name}")
+            _click.echo(f"    {_cfg['desc']}")
+            _flags = {k:v for k,v in _cfg.items() if k not in ('desc',) and v is not False and v is not None}
+            for _k, _v in list(_flags.items())[:8]:
+                _click.echo(f"    • {_k} = {_v}")
+            if len(_flags) > 8:
+                _click.echo(f"    • ... +{len(_flags)-8} flag lainnya")
+        _click.echo("\n  Contoh penggunaan:")
+        _click.echo("    python xscanner.py -u https://target.com --mode bounty")
+        _click.echo("    python xscanner.py -u https://target.com --mode waf --run-afb")
+        _click.echo("    python xscanner.py -u https://target.com --mode blind --blind-callback https://cb.io\n")
+        return
+
+    # ── Apply preset mode (sebelum individual flags di-process) ──────────────
+    if mode:
+        from utils.config import SCAN_MODES
+        _preset = SCAN_MODES.get(mode, {})
+        # Map preset key → local variable override
+        # Hanya override jika user tidak set flag secara eksplisit
+        # (Click tidak expose "apakah user set ini", jadi kita pakai nilai default sebagai proxy)
+        _mode_map = {
+            "profile":               lambda v: v,
+            "depth":                 lambda v: v,
+            "threads":               lambda v: v,
+            "rate_limit":            lambda v: v,
+            "waf_chain_depth":       lambda v: v,
+            "engine_version":        lambda v: v,
+            "report_html":           lambda v: v,
+            "report_md":             lambda v: v,
+            "report_sarif":          lambda v: v,
+        }
+        # Boolean flags — aktifkan dari preset
+        _bool_flags = [
+            "crawl","waf_bypass","test_headers","test_hpp","test_hpp_2025",
+            "test_json","test_csp_bypass","test_prototype","test_template",
+            "test_new_events","test_parser_diff","unicode_bypass","browser_quirks",
+            "dom_clobbering","second_order","js_crawl","dom_xss_scan","run_afb",
+            "knoxss_validate","generate_poc","verify_headless","checkpoint",
+            "start_rich_blind_server","blind_screenshot","spa_crawl",
+        ]
+        # Apply preset values ke locals
+        for _key, _val in _preset.items():
+            if _key == "desc":
+                continue
+            if _key in _mode_map and _val is not None:
+                locals()[_key] = _val
+            elif _key in _bool_flags and _val is True:
+                locals()[_key] = True
+            elif _key == "no_crawl" and _val is False:
+                no_crawl = False
+
+        import click as _c
+        _c.echo(f"  [mode: {mode}] {_preset.get('desc','')}\n")
+
     targets = list(url)
     if url_file:
         with open(url_file) as f:

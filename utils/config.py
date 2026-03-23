@@ -9,6 +9,77 @@ from typing import Optional
 
 # ─── Scan Profiles ────────────────────────────────────────────────────────────
 
+
+# ─── Scan Modes (preset kombinasi flag) ─────────────────────────────────────
+# Dipakai via --mode <nama> di CLI
+# Setiap mode adalah shorthand untuk sekelompok flag yang sudah dikurasi.
+# Individual flags masih bisa di-override setelah mode diterapkan.
+
+SCAN_MODES: dict = {
+    "recon": {
+        "desc":    "Scan cepat untuk recon awal (< 5 menit)",
+        "profile": "fast", "depth": 1, "threads": 20,
+        "crawl": True, "waf_bypass": True, "engine_version": "v2",
+    },
+    "standard": {
+        "desc":    "Scan standar sehari-hari (10-30 menit)",
+        "profile": "normal", "depth": 2, "threads": 10,
+        "crawl": True, "waf_bypass": True,
+        "test_headers": True, "test_hpp": True, "engine_version": "v2",
+    },
+    "deep": {
+        "desc":    "Full assessment — semua engine (1-3 jam)",
+        "profile": "deep", "depth": 3, "threads": 8,
+        "crawl": True, "waf_bypass": True, "engine_version": "v3",
+        "test_headers": True, "test_hpp": True, "test_hpp_2025": True,
+        "test_json": True, "test_csp_bypass": True, "test_prototype": True,
+        "test_template": True, "test_new_events": True, "test_parser_diff": True,
+        "unicode_bypass": True, "browser_quirks": True, "dom_clobbering": True,
+        "second_order": True, "js_crawl": True, "waf_chain_depth": 4,
+    },
+    "stealth": {
+        "desc":    "Mode senyap — lambat, minimalkan noise di log",
+        "profile": "stealth", "depth": 2, "threads": 2,
+        "rate_limit": 2.0, "crawl": True, "waf_bypass": True, "engine_version": "v2",
+    },
+    "bounty": {
+        "desc":    "Bug bounty — full scan + report siap submit (2-4 jam)",
+        "profile": "deep", "depth": 3, "threads": 10,
+        "crawl": True, "waf_bypass": True, "engine_version": "v3",
+        "test_headers": True, "test_hpp": True, "test_hpp_2025": True,
+        "test_json": True, "test_csp_bypass": True, "test_prototype": True,
+        "test_template": True, "test_new_events": True, "test_parser_diff": True,
+        "unicode_bypass": True, "browser_quirks": True, "second_order": True,
+        "js_crawl": True, "dom_xss_scan": True, "run_afb": True,
+        "knoxss_validate": True, "generate_poc": True, "verify_headless": True,
+        "checkpoint": True, "waf_chain_depth": 4,
+        "report_html": "bounty_report.html",
+        "report_md":   "bounty_submission.md",
+        "report_sarif":"bounty_report.sarif",
+    },
+    "waf": {
+        "desc":    "WAF bypass focused — 31 teknik evasion + AFB",
+        "profile": "normal", "waf_bypass": True, "engine_version": "v3",
+        "unicode_bypass": True, "browser_quirks": True,
+        "test_parser_diff": True, "test_new_events": True,
+        "run_afb": True, "waf_chain_depth": 4,
+    },
+    "blind": {
+        "desc":    "Blind XSS focused — rich probe + dashboard server",
+        "profile": "normal", "engine_version": "v3",
+        "start_rich_blind_server": True, "blind_screenshot": True,
+        "second_order": True, "test_headers": True,
+    },
+    "dom": {
+        "desc":    "DOM XSS + SPA focused — butuh Playwright",
+        "profile": "normal", "engine_version": "v3",
+        "dom_xss_scan": True, "spa_crawl": True, "js_crawl": True,
+        "verify_headless": True, "dom_clobbering": True,
+        "test_prototype": True, "test_template": True,
+    },
+}
+
+
 SCAN_PROFILES = {
     "fast":    {"depth": 1, "threads": 20, "timeout": 5,  "payloads_per_ctx": 10},
     "normal":  {"depth": 2, "threads": 10, "timeout": 10, "payloads_per_ctx": 30},
