@@ -975,3 +975,148 @@ class TestEndToEndConfig:
         assert "Low"    in md
         assert "reflected" in md
         assert "dom"    in md
+
+
+# ─── Tests for new modules (session 2025) ───────────────────────────────────
+
+
+class TestScanEngineV3Init:
+    """Verifikasi ScanEngineV3 __init__ tidak ada AttributeError."""
+
+    def test_knoxss_attrs_always_initialized(self):
+        """BUG FIX: knoxss_validator + knoxss_cases tidak diinit sebelumnya."""
+        from scanner.engine_v3 import ScanEngineV3
+        from utils.config import ScanConfig
+        cfg = ScanConfig(targets=["http://x.com"], run_afb=True,
+                         knoxss_validate=True, generate_poc=True)
+        e3  = ScanEngineV3(cfg)
+        assert hasattr(e3, "knoxss_validator"), "knoxss_validator missing"
+        assert hasattr(e3, "knoxss_cases"),     "knoxss_cases missing"
+        assert e3.knoxss_validator is not None
+        assert e3.knoxss_cases    is not None
+        assert e3.knoxss_cases.total == 118
+
+    def test_blind_server_probe_initialized(self):
+        """BUG FIX: _blind_server + _probe_gen tidak diinit sebelumnya."""
+        from scanner.engine_v3 import ScanEngineV3
+        from utils.config import ScanConfig
+        # Tanpa blind_callback — _probe_gen harus None
+        cfg1 = ScanConfig(targets=["http://x.com"])
+        e1   = ScanEngineV3(cfg1)
+        assert hasattr(e1, "_blind_server"), "_blind_server missing"
+        assert hasattr(e1, "_probe_gen"),    "_probe_gen missing"
+        assert e1._blind_server is None
+        assert e1._probe_gen    is None
+
+        # Dengan blind_callback — _probe_gen harus diinit
+        cfg2 = ScanConfig(targets=["http://x.com"],
+                          blind_callback="https://cb.test.io")
+        e2   = ScanEngineV3(cfg2)
+        assert e2._probe_gen is not None
+
+    def test_http_request_uses_send_not_raw(self):
+        """BUG FIX: self.http.request(ScanTarget) salah — harusnya self._send(t)."""
+        import re
+        src = open("scanner/engine_v3.py").read()
+        wrong = re.findall(r'self\.http\.request\(t\)', src)
+        assert len(wrong) == 0, f"Found {len(wrong)} wrong self.http.request(t) calls"
+
+    def test_full_init_all_flag_combinations(self):
+        """Semua kombinasi flag harus bisa diinstansiasi."""
+        from scanner.engine_v3 import ScanEngineV3
+        from utils.config import ScanConfig
+        combos = [
+            {},
+            {"run_afb": True, "knoxss_validate": True},
+            {"test_new_events": True, "test_parser_diff": True},
+            {"blind_callback": "https://cb.io", "blind_screenshot": True},
+            {"max_findings": 10, "scan_timeout": 60, "generate_poc": True},
+        ]
+        for combo in combos:
+            cfg = ScanConfig(targets=["http://x.com"], **combo)
+            e3  = ScanEngineV3(cfg)
+            # Tidak ada AttributeError = OK
+            assert hasattr(e3, "knoxss_validator")
+            assert hasattr(e3, "_blind_server")
+
+
+class TestBlindProbeGenerator:
+    """BlindProbeGenerator tests."""
+
+    def test_probe_contains_required_fields(self):
+        from payloads.blind_probe import BlindProbeGenerator
+        gen = BlindProbeGenerator("https://cb.test.io")
+        probe_js, uid = gen.generate_probe(url="http://t.com", param="q")
+        assert "document.cookie"    in probe_js
+        assert "localStorage"       in probe_js
+        assert "sessionStorage"     in probe_js
+        assert "location.hostname"  in probe_js
+        assert "location.origin"    in probe_js
+        assert "cb.test.io"         in probe_js
+        assert uid                  in probe_js
+
+    def test_six_variants_generated(self):
+        from payloads.blind_probe import BlindProbeGenerator
+        gen = BlindProbeGenerator("https://cb.test.io")
+        variants = gen.generate_all_variants(url="http://t.com", param="q")
+        labels   = [l for _, _, l in variants]
+        assert len(variants) == 6
+        assert any("script_inline"      in l for l in labels)
+        assert any("onbeforetoggle_2025" in l for l in labels)
+
+    def test_injection_tracking(self):
+        from payloads.blind_probe import BlindProbeGenerator
+        gen = BlindProbeGenerator("https://cb.test.io")
+        variants = gen.generate_all_variants(url="http://t.com", param="q")
+        assert len(gen.get_pending()) == 6
+        assert len(gen.get_fired())   == 0
+        gen.mark_fired(variants[0][1], {"url": "http://victim.com"})
+        assert len(gen.get_fired())   == 1
+        assert len(gen.get_pending()) == 5
+
+
+class TestKnoxssCaseEngine:
+    """KnoxssCaseEngine tests."""
+
+    def test_all_contexts_generate(self):
+        from payloads.knoxss_cases import KnoxssCaseEngine
+        kce = KnoxssCaseEngine()
+        for ctx in ["html","attr_dq","attr_sq","js_dq","js_sq",
+                    "url","css","xml","jsonp","path"]:
+            pl = kce.generate(ctx, top_n=3)
+            assert len(pl) >= 1, f"No payloads for ctx={ctx}"
+
+    def test_score_and_label_format(self):
+        from payloads.knoxss_cases import KnoxssCaseEngine
+        kce = KnoxssCaseEngine()
+        for payload, score, label in kce.generate("all", top_n=50):
+            assert 0 < score <= 1.0
+            assert ":" in label
+
+    def test_total_118_unique(self):
+        from payloads.knoxss_cases import KnoxssCaseEngine
+        kce = KnoxssCaseEngine()
+        assert kce.total == 118
+
+
+class TestAFBResult:
+    """AFBResult context detection logic."""
+
+    def test_html_context(self):
+        from scanner.knoxss_validator import AFBResult
+        afb = AFBResult()
+        afb.survived = {"angle_open":"<","angle_close":">",
+                        "parenthesis_o":"(","parenthesis_c":")"}
+        assert afb.best_context() == "html"
+
+    def test_attr_dq_context(self):
+        from scanner.knoxss_validator import AFBResult
+        afb = AFBResult()
+        afb.survived = {"double_quote":'"',"parenthesis_o":"(","parenthesis_c":")"}
+        afb.blocked  = {"angle_open":"<","angle_close":">"}
+        assert afb.best_context() == "attr_dq"
+
+    def test_unknown_when_nothing_survived(self):
+        from scanner.knoxss_validator import AFBResult
+        afb = AFBResult()
+        assert afb.best_context() == "unknown"
