@@ -136,6 +136,17 @@ class ScanEngineV3:
         self.new_event_eng    = NewEventHandlerEngine2025()
         self.upload_injector = UploadInjector(self.http)
         self.verifier        = HeadlessVerifier(timeout_ms=8000)
+        self.knoxss_validator = KnoxssValidator(self.http)
+        self.knoxss_cases    = KnoxssCaseEngine()
+
+        # Blind server + probe gen (None by default, start di _run_inner jika dikonfigurasi)
+        self._blind_server: RichBlindServer = None
+        self._probe_gen:    BlindProbeGenerator = None
+        if config.blind_callback:
+            self._probe_gen = BlindProbeGenerator(
+                callback_url=config.blind_callback,
+                include_screenshot=config.blind_screenshot,
+            )
         self.parser_diff_eng = ParserDifferentialEngine2025()
 
         # v1 supplement
@@ -225,6 +236,20 @@ class ScanEngineV3:
         return await self._run_inner()
 
     async def _run_inner(self) -> List[Finding]:
+        # ── Start rich blind server jika dikonfigurasi ───────────────────
+        if self.config.start_rich_blind_server:
+            self._blind_server = RichBlindServer(
+                host       = "0.0.0.0",
+                port       = self.config.blind_server_port,
+                output_dir = self.config.blind_output_dir,
+                probe_gen  = self._probe_gen,
+            )
+            await self._blind_server.start()
+
+        # ── Start KnoxssValidator browser jika diperlukan ────────────────
+        if self.config.knoxss_validate or self.config.run_afb:
+            await self.knoxss_validator.start()
+
         # Start headless verifier jika diperlukan
         if self.config.verify_headless:
             await self.verifier.start()
@@ -772,7 +797,7 @@ class ScanEngineV3:
 
         for payload, score, label in payloads:
             t    = self._inject(target, payload)
-            resp = await self.http.request(t)
+            resp = await self._send(t)
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
@@ -826,7 +851,7 @@ class ScanEngineV3:
         payloads = self.parser_diff_eng.generate(top_n=20)
         for payload, score, label in payloads:
             t = self._inject(target, payload)
-            resp = await self.http.request(t)
+            resp = await self._send(t)
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
@@ -883,7 +908,7 @@ class ScanEngineV3:
             if self._max_findings_reached():
                 break
             t    = self._inject(target, payload)
-            resp = await self.http.request(t)
+            resp = await self._send(t)
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
@@ -989,7 +1014,7 @@ class ScanEngineV3:
             ]
         for payload, label in ws_payloads[:10]:
             t    = self._inject(target, payload)
-            resp = await self.http.request(t)
+            resp = await self._send(t)
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
