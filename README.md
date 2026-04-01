@@ -49,8 +49,8 @@ XScanner adalah framework Python untuk mendeteksi dan mengeksploitasi kerentanan
 
 ```bash
 # 1. Clone
-git clone https://github.com/Auto-runs/xss-scanner.git
-cd xss-scanner
+git clone https://github.com/Auto-runs/Xsscan.git
+cd Xsscan
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -362,6 +362,7 @@ Untuk yang butuh kontrol penuh, semua flag tersedia:
 | `--report-csv` | Spreadsheet CSV |
 | `--report-md` | Markdown (siap bug bounty) |
 | `--report-sarif` | SARIF 2.1.0 (GitHub Code Scanning) |
+| `--details` | Print full payload + evidence untuk setiap finding |
 | `--no-progress` | Nonaktifkan progress output |
 
 ### Misc
@@ -431,7 +432,7 @@ Teknik Baru 2025: `parser_differential`, `new_event_handler`, `comma_operator_hp
 ## Arsitektur
 
 ```
-xss-scanner/
+Xsscan/
 ├── xscanner.py                       # Entry point
 │
 ├── cli/interface.py                  # CLI — 7 mode + 65+ flag
