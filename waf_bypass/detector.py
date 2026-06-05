@@ -46,12 +46,26 @@ class WAFDetector:
 
     @classmethod
     def is_blocked(cls, baseline_len: int, response_len: int, status: int) -> bool:
+        """
+        Heuristic: was this request blocked by a WAF/filter?
+
+        A real block is characterized by a block STATUS CODE, or by the response
+        becoming dramatically SHORTER than the baseline (a tiny "Access Denied"
+        page replacing the real content).
+
+        IMPORTANT: a response that is *longer* than the baseline is NOT a block —
+        it usually means our payload was reflected (often several times its own
+        length on a small page). The old code returned True when
+        response_len/baseline_len > 3.5, which silently discarded perfectly valid
+        reflected-XSS findings on small pages (search results, error echoes, API
+        fragments). That upper bound has been removed.
+        """
         if status in cls.BLOCK_STATUS_CODES:
             return True
-        if baseline_len > 0:
-            ratio = response_len / baseline_len
-            if ratio < 0.3 or ratio > 3.5:
-                return True
+        # Block pages collapse the response to a fraction of the real page.
+        # Require a non-trivial baseline so we don't misfire on tiny endpoints.
+        if baseline_len >= 200 and response_len < baseline_len * 0.25:
+            return True
         return False
 
 

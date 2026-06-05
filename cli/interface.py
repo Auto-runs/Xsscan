@@ -227,43 +227,76 @@ def main(mode, list_modes,
 """)
         return
 
-    # ── Apply preset mode (sebelum individual flags di-process) ──────────────
+    # ── Apply preset mode (BEFORE building config) ───────────────────────────
+    #
+    # NOTE: a previous version assigned to `locals()[key] = value` which is a
+    # well-known CPython no-op — it does NOT change the function's local
+    # variables. As a result every `--mode` was silently ignored. We now apply
+    # the preset with plain assignments so modes actually take effect.
+    #
+    # Rules:
+    #   - Scalars: the preset wins only when the user left the CLI default
+    #     (so explicit CLI flags still override the mode).
+    #   - Booleans: OR-combined — a mode can enable a feature, and passing the
+    #     flag also enables it.
+    #   - engine_version "v3" in SCAN_MODES means "run the full ScanEngineV3";
+    #     the payload-engine selector (config.engine_version) stays "v1"/"v2".
+    from utils.config import SCAN_MODES
+    _preset = SCAN_MODES.get(mode, {}) if mode else {}
+    use_v3 = engine_v3   # may be promoted to True by the selected mode
+
     if mode:
-        from utils.config import SCAN_MODES
-        _preset = SCAN_MODES.get(mode, {})
-        # Map preset key → local variable override
-        # Hanya override jika user tidak set flag secara eksplisit
-        # (Click tidak expose "apakah user set ini", jadi kita pakai nilai default sebagai proxy)
-        _mode_map = {
-            "profile":               lambda v: v,
-            "depth":                 lambda v: v,
-            "threads":               lambda v: v,
-            "rate_limit":            lambda v: v,
-            "waf_chain_depth":       lambda v: v,
-            "engine_version":        lambda v: v,
-            "report_html":           lambda v: v,
-            "report_md":             lambda v: v,
-            "report_sarif":          lambda v: v,
-        }
-        # Boolean flags — aktifkan dari preset
-        _bool_flags = [
-            "crawl","waf_bypass","test_headers","test_hpp","test_hpp_2025",
-            "test_json","test_csp_bypass","test_prototype","test_template",
-            "test_new_events","test_parser_diff","unicode_bypass","browser_quirks",
-            "dom_clobbering","second_order","js_crawl","dom_xss_scan","run_afb",
-            "knoxss_validate","generate_poc","verify_headless","checkpoint",
-            "start_rich_blind_server","blind_screenshot","spa_crawl",
-        ]
-        # Apply preset values ke locals
-        for _key, _val in _preset.items():
-            if _key == "desc":
-                continue
-            if _key in _mode_map and _val is not None:
-                locals()[_key] = _val
-            elif _key in _bool_flags and _val is True:
-                locals()[_key] = True
-            elif _key == "no_crawl" and _val is False:
-                no_crawl = False
+        # ── Scalar overrides (preset wins only if user kept the default) ──
+        if "profile" in _preset and profile == "normal":
+            profile = _preset["profile"]
+        if "depth" in _preset and depth == 2:
+            depth = _preset["depth"]
+        if "threads" in _preset and threads == 10:
+            threads = _preset["threads"]
+        if "rate_limit" in _preset and rate_limit == 0.0:
+            rate_limit = _preset["rate_limit"]
+        if "waf_chain_depth" in _preset and waf_chain_depth == 3:
+            waf_chain_depth = _preset["waf_chain_depth"]
+
+        # ── Engine selection ──
+        _mode_engine = _preset.get("engine_version", "v2")
+        if _mode_engine == "v3":
+            use_v3 = True            # full vOVERPOWER engine
+        elif engine_version == "v2" and _mode_engine in ("v1", "v2"):
+            engine_version = _mode_engine
+
+        # ── Crawl: most modes crawl; 'bypass' turns it off ──
+        if _preset.get("crawl") is False and not no_crawl:
+            no_crawl = True
+
+        # ── Boolean feature flags the preset turns on ──
+        if _preset.get("test_headers"):            test_headers = True
+        if _preset.get("test_hpp"):                test_hpp = True
+        if _preset.get("test_hpp_2025"):           test_hpp_2025 = True
+        if _preset.get("test_json"):               test_json = True
+        if _preset.get("test_csp_bypass"):         test_csp_bypass = True
+        if _preset.get("test_prototype"):          test_prototype = True
+        if _preset.get("test_template"):           test_template = True
+        if _preset.get("test_new_events"):         test_new_events = True
+        if _preset.get("test_parser_diff"):        test_parser_diff = True
+        if _preset.get("unicode_bypass"):          unicode_bypass = True
+        if _preset.get("browser_quirks"):          browser_quirks = True
+        if _preset.get("dom_clobbering"):          dom_clobbering = True
+        if _preset.get("second_order"):            second_order = True
+        if _preset.get("js_crawl"):                js_crawl = True
+        if _preset.get("run_afb"):                 run_afb = True
+        if _preset.get("knoxss_validate"):         knoxss_validate = True
+        if _preset.get("generate_poc"):            generate_poc = True
+        if _preset.get("verify_headless"):         verify_headless = True
+        if _preset.get("checkpoint"):              checkpoint = True
+        if _preset.get("start_rich_blind_server"): start_rich_blind_server = True
+        if _preset.get("dom_xss_scan"):            dom_xss_scan = True
+        if _preset.get("spa_crawl"):               spa_crawl = True
+
+        # ── Report outputs defined by the mode (e.g. bounty) ──
+        report_html  = report_html  or _preset.get("report_html")
+        report_md    = report_md    or _preset.get("report_md")
+        report_sarif = report_sarif or _preset.get("report_sarif")
 
         import click as _c
         _c.echo(f"  [mode: {mode}] {_preset.get('desc','')}\n")
@@ -396,9 +429,10 @@ def main(mode, list_modes,
         info(f"Verification: headless Chromium enabled")
 
     # ─── Run ─────────────────────────────────────────────────────────────────
-    # BUG FIX #9: default engine_version="v2" was incorrectly routing ALL scans to ScanEngineV3
-    # even when user did not pass --engine-v3. Now V3 only activates with --engine-v3 flag explicitly.
-    asyncio.run(_run(config, details, start_blind_server, use_v3=engine_v3))
+    # `use_v3` is True when --engine-v3 was passed OR the selected --mode is one
+    # of the deep modes (hunt/bypass/bounty/blind/spa). Otherwise the standard
+    # engine (ScanEngineV2) is used.
+    asyncio.run(_run(config, details, start_blind_server, use_v3=use_v3))
 
 
 async def _run(config: ScanConfig, print_details: bool, blind_server: bool, use_v3: bool = False):
@@ -424,10 +458,10 @@ async def _run(config: ScanConfig, print_details: bool, blind_server: bool, use_
     section("Scanning")
     if use_v3:
         engine = ScanEngineV3(config)
-        info("Engine: vOVERPOWER (ScanEngineV3) — 4.50B combinations")
+        info("Engine: vOVERPOWER (ScanEngineV3) — all engines active")
     else:
         engine = ScanEngineV2(config)
-        info("Engine: v1 (ScanEngineV2) — 152M combinations")
+        info("Engine: standard (ScanEngineV2)")
     start  = time.monotonic()
 
     try:

