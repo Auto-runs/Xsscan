@@ -804,8 +804,10 @@ class ScanEngineV3:
                 continue
             self._stats["requests_sent"] += 1
 
-            result = self.detector.analyze(payload, resp.text, resp.status,
-                                           dict(resp.headers))
+            result = self.detector.analyze(
+                payload, resp.text, context=Context.HTML,
+                headers=dict(resp.headers),
+            )
             if not result:
                 continue
 
@@ -857,9 +859,11 @@ class ScanEngineV3:
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
-            result = self.detector.analyze(payload, resp.text, resp.status,
-                                           dict(resp.headers))
-            if result.get("reflected"):
+            result = self.detector.analyze(
+                payload, resp.text, context=Context.HTML,
+                headers=dict(resp.headers),
+            )
+            if result and result.get("reflected"):
                 idx = resp.text.find(payload[:20]) if len(payload) > 20 else resp.text.find(payload)
                 evidence = ""
                 if idx >= 0:
@@ -914,7 +918,10 @@ class ScanEngineV3:
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
-            result = self.detector.analyze(payload, resp.text, resp.status, dict(resp.headers))
+            result = self.detector.analyze(
+                payload, resp.text, context=Context.HTML,
+                headers=dict(resp.headers),
+            )
             if not result:
                 continue
 
@@ -1020,7 +1027,10 @@ class ScanEngineV3:
             if not resp:
                 continue
             self._stats["requests_sent"] += 1
-            result = self.detector.analyze(payload, resp.text, resp.status, dict(resp.headers))
+            result = self.detector.analyze(
+                payload, resp.text, context=Context.WEBSOCKET,
+                headers=dict(resp.headers),
+            )
             if result:
                 idx = resp.text.find(payload[:20]) if payload else -1
                 evidence = resp.text[max(0,idx-60):idx+80] if idx >= 0 else ""

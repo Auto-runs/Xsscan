@@ -78,6 +78,23 @@ class Reporter:
               <td>{'✓' if f.verified else '-'}</td>
             </tr>"""
 
+        # NOTE: build the findings table separately. A nested triple-quoted
+        # f-string inside another triple-quoted f-string only parses on Python
+        # 3.12+ (PEP 701); on 3.11 it raises "f-string: expecting '}'" and made
+        # this whole module un-importable. Computing it here keeps 3.11 support.
+        if not self.findings:
+            findings_section = ('<p style="color:#27ae60;font-size:1.1rem">'
+                                '✓ No XSS vulnerabilities found.</p>')
+        else:
+            findings_section = f"""
+  <table>
+    <thead><tr>
+      <th>#</th><th>URL</th><th>Param</th><th>Severity</th><th>Type</th>
+      <th>Context</th><th>Payload</th><th>WAF</th><th>Verified</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>"""
+
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -113,14 +130,7 @@ class Reporter:
     <div class="stat"><div class="num low">{sev['Low']}</div><div class="lbl">Low</div></div>
   </div>
 
-  {'<p style="color:#27ae60;font-size:1.1rem">✓ No XSS vulnerabilities found.</p>' if not self.findings else f"""
-  <table>
-    <thead><tr>
-      <th>#</th><th>URL</th><th>Param</th><th>Severity</th><th>Type</th>
-      <th>Context</th><th>Payload</th><th>WAF</th><th>Verified</th>
-    </tr></thead>
-    <tbody>{rows}</tbody>
-  </table>"""}
+  {findings_section}
 </body>
 </html>"""
         return self._write(path, html)
